@@ -1,0 +1,33 @@
+[Unit]
+Description=Intraday Breakout Scanner Service
+Documentation=https://github.com/yourusername/intraday-breakout-scanner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/scanner
+Environment=PYTHONPATH=/opt/scanner
+Environment=TZ=Asia/Kolkata
+ExecStart=/opt/scanner/venv/bin/python /opt/scanner/main.py --mode schedule
+ExecStop=/bin/kill -SIGTERM $MAINPID
+ExecReload=/bin/kill -SIGHUP $MAINPID
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+TimeoutStopSec=30
+StandardOutput=append:/opt/scanner/logs/scanner.log
+StandardError=append:/opt/scanner/logs/error.log
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/opt/scanner/data /opt/scanner/logs /opt/scanner/reports /opt/scanner/charts /opt/scanner/output
+
+[Install]
+WantedBy=multi-user.target

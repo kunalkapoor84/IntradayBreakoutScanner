@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Environment
+.env
+
+# Data & Output
+data/scanner.db
+data/models/*.pkl
+data/*.csv
+
+# Logs
+logs/*.log
+logs/*.log.*
+
+# Reports
+reports/*.xlsx
+reports/*.csv
+reports/*.json
+reports/*.html
+
+# Charts
+charts/*.png
+
+# Output
+output/reports/
+output/charts/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore

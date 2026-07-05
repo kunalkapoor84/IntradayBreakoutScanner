@@ -1,0 +1,32 @@
+# Intraday Breakout Scanner - Linux Cron Configuration
+# Install: crontab config/crontab
+#
+# Market runs Monday-Friday:
+#   Pre-market:  8:30 AM (download symbols, historical data)
+#   Live scans:  9:15 AM - 3:30 PM (every 15 minutes)
+#   EOD scan:    3:40 PM (comprehensive scan + reports)
+#   Cleanup:     4:00 AM daily
+
+# ┌───────────── minute (0-59)
+# │ ┌───────────── hour (0-23)
+# │ │ ┌───────────── day of month (1-31)
+# │ │ │ ┌───────────── month (1-12)
+# │ │ │ │ ┌───────────── day of week (0-7, 0=Sun)
+# │ │ │ │ │
+# * * * * * command
+
+# Pre-market data download (8:30 AM, Mon-Fri)
+30 8 * * 1-5 cd /opt/scanner && venv/bin/python scripts/pre_market.py >> logs/cron.log 2>&1
+
+# Live scan every 15 minutes during market hours (9:15-15:30, Mon-Fri)
+# Uses a wrapper that checks if market is actually open
+*/15 9-15 * * 1-5 cd /opt/scanner && venv/bin/python scripts/cron_scan.py >> logs/cron.log 2>&1
+
+# End-of-day scan (3:40 PM, Mon-Fri)
+40 15 * * 1-5 cd /opt/scanner && venv/bin/python scripts/eod_scan.py >> logs/cron.log 2>&1
+
+# Database cleanup (4:00 AM daily)
+0 4 * * * cd /opt/scanner && venv/bin/python scripts/cleanup.py >> logs/cron.log 2>&1
+
+# Backup (4:30 AM daily)
+30 4 * * * cd /opt/scanner && bash deployment/backup.sh >> logs/backup.log 2>&1
