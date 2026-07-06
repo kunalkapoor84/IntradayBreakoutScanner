@@ -7,6 +7,7 @@ from typing import Optional, Callable
 
 from config.settings import CONFIG
 from config.logging_setup import setup_logging
+from data.time_utils import now_ist
 from app.database.db import Database
 
 logger = setup_logging("scheduler")
@@ -32,7 +33,7 @@ INDIAN_MARKET_HOLIDAYS_2025 = {
 class MarketCalendar:
     @staticmethod
     def is_trading_day(dt: Optional[datetime] = None) -> bool:
-        dt = dt or datetime.now()
+        dt = dt or now_ist()
         if dt.weekday() >= 5:
             return False
         date_str = dt.strftime("%Y-%m-%d")
@@ -42,7 +43,7 @@ class MarketCalendar:
 
     @staticmethod
     def is_market_open(dt: Optional[datetime] = None) -> bool:
-        dt = dt or datetime.now()
+        dt = dt or now_ist()
         if not MarketCalendar.is_trading_day(dt):
             return False
         open_time = dt_time.fromisoformat(CONFIG.market_open)
@@ -51,7 +52,7 @@ class MarketCalendar:
 
     @staticmethod
     def next_market_open(dt: Optional[datetime] = None) -> Optional[datetime]:
-        dt = dt or datetime.now()
+        dt = dt or now_ist()
         for _ in range(14):
             dt += timedelta(days=1)
             if MarketCalendar.is_trading_day(dt):
@@ -61,7 +62,7 @@ class MarketCalendar:
 
     @staticmethod
     def is_pre_market(dt: Optional[datetime] = None) -> bool:
-        dt = dt or datetime.now()
+        dt = dt or now_ist()
         if not MarketCalendar.is_trading_day(dt):
             return False
         open_time = dt_time.fromisoformat(CONFIG.market_open)
@@ -70,7 +71,7 @@ class MarketCalendar:
 
     @staticmethod
     def is_post_market(dt: Optional[datetime] = None) -> bool:
-        dt = dt or datetime.now()
+        dt = dt or now_ist()
         if not MarketCalendar.is_trading_day(dt):
             return False
         close_time = dt_time.fromisoformat(CONFIG.market_close)
@@ -147,7 +148,7 @@ class EnhancedScheduler:
         def loop():
             while not self._stop_event.is_set():
                 try:
-                    now = datetime.now()
+                    now = now_ist()
                     if MarketCalendar.is_market_open(now):
                         self._safe_scan_wrapper()
                     elif MarketCalendar.is_post_market(now):
@@ -164,7 +165,7 @@ class EnhancedScheduler:
     def _safe_scan_wrapper(self):
         if self._shutdown_requested:
             return
-        now = datetime.now()
+        now = now_ist()
         if not MarketCalendar.is_market_open(now):
             logger.debug("Market closed, skipping live scan")
             return
@@ -194,7 +195,7 @@ class EnhancedScheduler:
     def _eod_scan_wrapper(self):
         if self._shutdown_requested:
             return
-        now = datetime.now()
+        now = now_ist()
         if not MarketCalendar.is_trading_day(now):
             logger.info("Not a trading day, skipping EOD scan")
             return
@@ -222,7 +223,7 @@ class EnhancedScheduler:
             self._scan_lock.release()
 
     def _pre_market_wrapper(self):
-        now = datetime.now()
+        now = now_ist()
         if not MarketCalendar.is_trading_day(now):
             return
         logger.info("Pre-market tasks starting...")

@@ -103,10 +103,82 @@ class DhanClient:
         return result or []
 
     def get_quote(self, symbol: str, exchange: str = "NSE") -> Dict:
-        return self._request("GET", "/v2/quotes", params={"symbol": symbol, "exchange": exchange})
+        security_id = int(self._get_security_id(symbol))
+        exg = self._exchange_segment(exchange)
+        payload = {exg: [security_id], "dhanClientId": self.client_id}
+        result = self._request("POST", "/v2/marketfeed/quote", data=payload)
+        if isinstance(result, dict):
+            quote_data = result.get("data", {}).get(exg, {}).get(str(security_id), {})
+            if quote_data:
+                return quote_data
+        return result or {}
 
-    def get_option_chain(self, symbol: str, exchange: str = "NSE") -> List[Dict]:
-        return self._request("GET", "/v2/optionchain", params={"symbol": symbol, "exchange": exchange}).get("data", [])
+    def get_batch_quote(self, symbols: List[str], exchange: str = "NSE") -> Dict[str, dict]:
+        self._load_instrument_master()
+        exg = self._exchange_segment(exchange)
+        ids = []
+        symbol_to_sid = {}
+        for sym in symbols:
+            sid_str = self._symbol_to_id.get(sym)
+            if sid_str:
+                sid = int(sid_str)
+                ids.append(sid)
+                symbol_to_sid[sid] = sym
+        if not ids:
+            return {}
+        result = self._request("POST", "/v2/marketfeed/quote",
+                               data={exg: ids, "dhanClientId": self.client_id})
+        out: Dict[str, dict] = {}
+        if isinstance(result, dict):
+            exchange_data = result.get("data", {}).get(exg, {})
+            for sid_str, data in exchange_data.items():
+                sym = symbol_to_sid.get(int(sid_str))
+                if sym and isinstance(data, dict):
+                    price = 0.0
+                    for key in ("last_price", "lastPrice", "ltp", "close", "CMP"):
+                        val = data.get(key)
+                        if val and float(val) > 0:
+                            price = float(val)
+                            break
+                    oi = data.get("open_interest", 0) or 0
+                    out[sym] = {"price": price, "oi": int(oi)}
+        return out
+
+    def get_option_chain(self, symbol: str, exchange: str = "NSE", expiry: str = "") -> List[Dict]:
+        sid = int(self._get_security_id(symbol))
+        if not expiry:
+            expiry = self._get_nearest_expiry(sid, exchange)
+        payload = {
+            "UnderlyingScrip": sid,
+            "UnderlyingSeg": self._exchange_segment(exchange),
+            "Expiry": expiry,
+        }
+        result = self._request("POST", "/v2/optionchain", data=payload)
+        if isinstance(result, dict):
+            oc = result.get("data", {}).get("oc", {})
+            chain = []
+            for strike, sides in oc.items():
+                for opt_type in ("ce", "pe"):
+                    opt = sides.get(opt_type)
+                    if opt:
+                        opt["strike_price"] = float(strike)
+                        opt["option_type"] = opt_type.upper()
+                        opt["open_interest"] = opt.get("oi", 0) or 0
+                        opt["change_oi"] = (opt.get("oi", 0) or 0) - (opt.get("previous_oi", 0) or 0)
+                        opt["iv"] = opt.get("implied_volatility", 0) or 0
+                        chain.append(opt)
+            return chain
+        return []
+
+    def _get_nearest_expiry(self, security_id: int, exchange: str = "NSE") -> str:
+        result = self._request("POST", "/v2/optionchain/expirylist",
+                               data={"UnderlyingScrip": security_id,
+                                     "UnderlyingSeg": self._exchange_segment(exchange)})
+        if isinstance(result, dict):
+            expiries = result.get("data", [])
+            if expiries:
+                return expiries[0]
+        return ""
 
     def get_futures_data(self, symbol: str, exchange: str = "NSE") -> Dict:
         return self._request("GET", "/v2/futures", params={"symbol": symbol, "exchange": exchange})

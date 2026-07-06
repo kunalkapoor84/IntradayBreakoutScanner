@@ -3,6 +3,7 @@ from datetime import datetime, time as dt_time
 from typing import Optional
 import schedule
 from config.logging_setup import setup_logging
+from data.time_utils import now_ist
 
 logger = setup_logging("scheduler")
 
@@ -31,13 +32,13 @@ class ScannerScheduler:
         while self.running: schedule.run_pending(); time.sleep(1)
 
     def run_scanner(self):
-        if datetime.now().weekday() >= 5: return
+        if now_ist().weekday() >= 5: return
         try:
             o = self._get_engine().run(); logger.info(f"Scan done: {o.stocks_shortlisted} shortlisted")
         except Exception as e: logger.error(f"Scan failed: {e}")
 
     def live_scan(self):
-        now = datetime.now()
+        now = now_ist()
         if now.weekday() >= 5: return
         if dt_time(9,15) <= now.time() <= dt_time(15,30):
             try: self._get_engine().run()

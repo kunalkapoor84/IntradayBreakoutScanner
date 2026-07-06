@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config.settings import CONFIG
 from config.logging_setup import setup_logging
 from data.collect_data import DataCollector
+from data.time_utils import now_ist
 from scoring.ai_scorer import AIScorer
 from reporting.excel_report import ExcelReportGenerator
 from reporting.csv_report import CSVReportGenerator
@@ -37,7 +38,7 @@ class ScannerEngine:
         logger.info("=" * 60)
         logger.info("INTRADAY BREAKOUT SCANNER - Starting")
         logger.info("=" * 60)
-        out = ScannerOutput(generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        out = ScannerOutput(generated_at=now_ist().strftime("%Y-%m-%d %H:%M:%S"))
         all_s = self.data.collect_all_stocks()
         out.total_stocks_analyzed = len(all_s)
         scored: List[ScoredStock] = []
@@ -64,6 +65,7 @@ class ScannerEngine:
         out.market_regime = self.scorer.market_regime
         out.stocks_shortlisted = len(out.top_stocks)
         logger.info(f"Shortlisted: {out.stocks_shortlisted}")
+        self._enrich_top_with_option_chain(out, scored, all_s)
         try:
             self.xlsx.generate(out)
             self.csv.generate(out)
@@ -117,6 +119,53 @@ class ScannerEngine:
         if "Bullish" in str(r.direction) and r.volume_signals.get("institutional_accumulation"): c.append("Inst Accumulation")
         if "Bearish" in str(r.direction) and r.volume_signals.get("institutional_distribution"): c.append("Inst Distribution")
         return "; ".join(c) if c else "Technical"
+
+    def _enrich_top_with_option_chain(self, out: ScannerOutput, scored: List[ScoredStock], all_s: dict):
+        top_symbols = [s.symbol for s in out.top_stocks]
+        if not top_symbols:
+            return
+        logger.info(f"Fetching option chain for top {len(top_symbols)} symbols...")
+        nearest_expiry = ""
+        for sym in top_symbols:
+            try:
+                if not nearest_expiry:
+                    sid = int(self.data.client._get_security_id(sym))
+                    nearest_expiry = self.data.client._get_nearest_expiry(sid)
+                    time.sleep(3)
+                chain = self.data.client.get_option_chain(sym, expiry=nearest_expiry)
+                time.sleep(3)
+                if not chain:
+                    continue
+                stock = all_s.get(sym)
+                if not stock:
+                    continue
+                ce = [o for o in chain if str(o.get("option_type", "")).upper() == "CE"]
+                pe = [o for o in chain if str(o.get("option_type", "")).upper() == "PE"]
+                ce_oi = sum(o.get("open_interest", 0) or 0 for o in ce)
+                pe_oi = sum(o.get("open_interest", 0) or 0 for o in pe)
+                coi = sum(o.get("change_oi", 0) or 0 for o in ce) + sum(o.get("change_oi", 0) or 0 for o in pe)
+                ivs = [o.get("iv", 0) or 0 for o in chain if (o.get("iv") or 0) > 0]
+                stock.option_chain = chain
+                stock.open_interest = ce_oi + pe_oi
+                stock.change_oi = coi
+                stock.pcr = round(pe_oi / max(ce_oi, 1), 2)
+                stock.iv = round(float(np.mean(ivs)), 2) if ivs else 0.0
+                idx = next((i for i, s in enumerate(scored) if s.symbol == sym), -1)
+                if idx >= 0:
+                    old_chart_path = scored[idx].chart_path
+                    _, result, plan = self.scorer.analyze_stock(stock)
+                    scored[idx] = self._build(stock, result, plan, idx)
+                    scored[idx].chart_path = old_chart_path
+                    logger.info(f"  OC enriched: {sym} | OI: {stock.open_interest:,} | PCR: {stock.pcr} | IV: {stock.iv}%")
+            except Exception as e:
+                logger.debug(f"Option chain failed for {sym}: {e}")
+        out.top_stocks = self.scorer.shortlist(scored)
+        cats = self.scorer.get_categories(scored)
+        out.top_bullish = cats["top_bullish"]
+        out.top_bearish = cats["top_bearish"]
+        out.top_high_volatility = cats["top_high_volatility"]
+        out.top_breakout_watch = cats["top_breakout_watch"]
+        out.top_mean_reversion = cats["top_mean_reversion"]
 
     def _print(self, out: ScannerOutput):
         self._print_category("TOP 20 OVERALL", out.top_stocks, out)
