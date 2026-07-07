@@ -94,11 +94,12 @@ class DataCollector:
     def _throttle(self):
         time.sleep(0.15)
 
-    def collect_symbol_data(self, symbol: str) -> Optional[StockData]:
+    def collect_symbol_data(self, symbol: str, market_open: bool = False) -> Optional[StockData]:
         daily_from, daily_to = self._date_range(self.lookback_daily)
         intra_from, intra_to = self._date_range(self.lookback_intraday)
         daily_data = []
         intraday_data = []
+        ohlc_15min = []
         try:
             daily_data = self.client.get_historical_daily(symbol, from_date=daily_from, to_date=daily_to)
         except Exception as e:
@@ -110,6 +111,17 @@ class DataCollector:
         except Exception as e:
             logger.warning(f"Failed to get intraday data for {symbol}: {e}")
         self._throttle()
+        if market_open:
+            try:
+                intra_from_15, intra_to_15 = self._date_range(CONFIG.scanner.live_intraday_lookback_days)
+                ohlc_15min = self.client.get_historical_intraday(
+                    symbol, interval=CONFIG.scanner.live_intraday_interval_minutes,
+                    from_date=intra_from_15, to_date=intra_to_15
+                )
+                ohlc_15min = strip_non_trading_days(ohlc_15min)
+            except Exception as e:
+                logger.warning(f"Failed to get 15min data for {symbol}: {e}")
+            self._throttle()
         if not daily_data:
             return None
         sector = SECTOR_MAP.get(symbol, "Unknown")
@@ -118,6 +130,8 @@ class DataCollector:
         if live_price > 0:
             price = live_price
             self._update_intraday_with_live(intraday_data, live_price)
+            if ohlc_15min:
+                self._update_intraday_with_live(ohlc_15min, live_price)
         today_bar = self._build_today_bar(intraday_data, live_price)
         if today_bar:
             has_today_in_daily = bool(daily_data and self._ts_to_date_str(daily_data[-1].get("timestamp")) == now_ist().strftime("%Y-%m-%d"))
@@ -134,6 +148,7 @@ class DataCollector:
             avg_turnover_crore=self._calc_avg_turnover(daily_data),
             avg_volume_lakhs=self._calc_avg_volume(daily_data),
             delivery_pct=delivery_pct, ohlc_daily=daily_data, ohlc_5min=intraday_data,
+            ohlc_15min=ohlc_15min,
             vwap=vwap,
             open_interest=oi,
             change_oi=deriv_data["change_oi"],
@@ -143,10 +158,11 @@ class DataCollector:
         )
 
     def collect_all_stocks(self) -> Dict[str, StockData]:
+        market_open = _is_market_open_now()
         self._prefetch_quotes()
         results = {}
         for i, symbol in enumerate(NSE_FO_STOCKS):
-            stock = self.collect_symbol_data(symbol)
+            stock = self.collect_symbol_data(symbol, market_open=market_open)
             if stock:
                 results[symbol] = stock
                 logger.info(f"[{i+1}/{len(NSE_FO_STOCKS)}] {symbol} - OK")

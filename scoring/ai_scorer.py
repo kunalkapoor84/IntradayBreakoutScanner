@@ -28,8 +28,36 @@ class AIScorer:
         self.weights = CONFIG.weights
         self.market_regime = self._detect_market_regime()
 
-    def analyze_stock(self, stock: StockData) -> Tuple[bool, AnalysisResult, TradePlan]:
+    def analyze_stock(self, stock: StockData, market_open: bool = False) -> Tuple[bool, AnalysisResult, TradePlan]:
+        if market_open:
+            return self._analyze_live(stock)
+        ok, result, plan = self._run_pipeline(stock)
+        ema = self._check_daily_ema_crossover(stock)
+        if ema.get("fresh_crossover"):
+            result.patterns.append(PatternType.EMA_CROSSOVER_DAILY)
+        return ok, result, plan
+
+    def _check_daily_ema_crossover(self, stock: StockData) -> Dict:
+        c = np.array([float(d.get("close", 0)) for d in stock.ohlc_daily if d.get("close")])
+        if len(c) < 30:
+            return {"fresh_crossover": False, "ema10": 0, "ema30": 0}
+        e10 = self._compute_ema(c, 10)
+        e30 = self._compute_ema(c, 30)
+        fresh_crossover = False
+        if len(e10) >= 2 and len(e30) >= 2 and not np.isnan(e10[-2]) and not np.isnan(e30[-2]):
+            fresh_crossover = e10[-1] > e30[-1] and e10[-2] <= e30[-2]
+        return {
+            "fresh_crossover": fresh_crossover,
+            "ema10": float(e10[-1]) if len(e10) > 0 and not np.isnan(e10[-1]) else 0,
+            "ema30": float(e30[-1]) if len(e30) > 0 and not np.isnan(e30[-1]) else 0,
+        }
+
+    def _run_pipeline(self, stock: StockData) -> Tuple[bool, AnalysisResult, TradePlan]:
         result = AnalysisResult(symbol=stock.symbol)
+
+        if not self.liquidity.check(stock):
+            return False, result, TradePlan(symbol=stock.symbol)
+        result.passed_liquidity = True
 
         ms = self.momentum.analyze(stock)
         result.momentum_signals = ms
@@ -52,6 +80,72 @@ class AIScorer:
         result.direction, result.confidence = self._determine_direction(result)
         trade_plan = self._generate_trade_plan(stock, result)
         return True, result, trade_plan
+
+    def _passes_daily_momentum(self, stock: StockData) -> bool:
+        c = np.array([float(d.get("close", 0)) for d in stock.ohlc_daily if d.get("close")])
+        if len(c) < 50:
+            return False
+        ms = self.momentum.analyze(stock)
+        rsi = self._compute_rsi(stock)
+        adx = ms.get("adx", 0)
+        trend_score = self._score_trend(stock)
+        if trend_score < 8:
+            return False
+        if rsi < 40 or rsi > 75:
+            return False
+        if adx < 15:
+            return False
+        return True
+
+    def _analyze_live(self, stock: StockData) -> Tuple[bool, AnalysisResult, TradePlan]:
+        if not self._passes_daily_momentum(stock):
+            return False, AnalysisResult(symbol=stock.symbol), TradePlan(symbol=stock.symbol)
+        if not stock.ohlc_15min or len(stock.ohlc_15min) < 50:
+            return False, AnalysisResult(symbol=stock.symbol), TradePlan(symbol=stock.symbol)
+        intra = StockData(
+            symbol=stock.symbol, price=stock.price,
+            avg_turnover_crore=stock.avg_turnover_crore,
+            avg_volume_lakhs=stock.avg_volume_lakhs,
+            delivery_pct=stock.delivery_pct,
+            ohlc_daily=stock.ohlc_15min, ohlc_5min=[],
+            vwap=stock.vwap,
+            open_interest=stock.open_interest,
+            change_oi=stock.change_oi, pcr=stock.pcr, iv=stock.iv,
+            sector=stock.sector,
+        )
+        ok, result, plan = self._run_pipeline(intra)
+        rv = result.volume_signals.get("relative_volume", 0)
+        if rv > 1.0:
+            result.patterns.append(PatternType.VOLUME_EXPANSION_15MIN)
+            result.total_score = min(100, result.total_score + 5)
+        ema = self._check_15min_ema_signals(stock.ohlc_15min)
+        if ema.get("fresh_crossover"):
+            result.patterns.append(PatternType.EMA_CROSSOVER_15MIN)
+            result.total_score = min(100, result.total_score + 10)
+        if ema.get("alignment"):
+            result.total_score = min(100, result.total_score + 5)
+        if not ok or result.direction == Direction.NEUTRAL or result.total_score < CONFIG.scanner.score_threshold:
+            return False, result, plan
+        return True, result, plan
+
+    def _check_15min_ema_signals(self, ohlc_15min: List) -> Dict:
+        c = np.array([float(d.get("close", 0)) for d in ohlc_15min if d.get("close")])
+        if len(c) < 50:
+            return {"fresh_crossover": False, "alignment": False, "ema5": 0, "ema20": 0, "ema50": 0}
+        e5 = self._compute_ema(c, 5)
+        e20 = self._compute_ema(c, 20)
+        e50 = self._compute_ema(c, 50)
+        alignment = len(e5) > 0 and len(e20) > 0 and len(e50) > 0 and e5[-1] > e20[-1] > e50[-1]
+        fresh_crossover = False
+        if len(e5) >= 2 and len(e20) >= 2 and not np.isnan(e5[-2]) and not np.isnan(e20[-2]):
+            fresh_crossover = e5[-1] > e20[-1] and e5[-2] <= e20[-2]
+        return {
+            "fresh_crossover": fresh_crossover,
+            "alignment": alignment,
+            "ema5": float(e5[-1]) if len(e5) > 0 and not np.isnan(e5[-1]) else 0,
+            "ema20": float(e20[-1]) if len(e20) > 0 and not np.isnan(e20[-1]) else 0,
+            "ema50": float(e50[-1]) if len(e50) > 0 and not np.isnan(e50[-1]) else 0,
+        }
 
     def _compute_rsi(self, stock: StockData) -> float:
         try:

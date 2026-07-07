@@ -9,6 +9,7 @@ build/
 venv/
 
 # Environment
+.env
 
 # Data & Output
 data/scanner.db

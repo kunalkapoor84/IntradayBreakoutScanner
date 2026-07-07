@@ -34,6 +34,8 @@ class ScannerConfig:
     lookback_intraday_days: int = 20
     intraday_interval_minutes: int = 5
     max_risk_per_trade: float = 500.0
+    live_intraday_interval_minutes: int = 15
+    live_intraday_lookback_days: int = 5
 
 
 @dataclass

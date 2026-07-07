@@ -32,6 +32,9 @@ class PatternType(str, Enum):
     BEARISH_ENGULFING = "Bearish Engulfing"
     MARUBOZU = "Marubozu"
     DOJI_NEAR_BREAKOUT = "Doji Near Breakout"
+    EMA_CROSSOVER_15MIN = "15min EMA Crossover"
+    VOLUME_EXPANSION_15MIN = "15min Vol Expansion"
+    EMA_CROSSOVER_DAILY = "Daily EMA 10/30 Crossover"
 
 
 class StrategyType(str, Enum):
@@ -55,6 +58,7 @@ class StockData:
     delivery_pct: float = 0.0
     ohlc_daily: List[Dict[str, Any]] = field(default_factory=list)
     ohlc_5min: List[Dict[str, Any]] = field(default_factory=list)
+    ohlc_15min: List[Dict[str, Any]] = field(default_factory=list)
     vwap: float = 0.0
     open_interest: int = 0
     change_oi: int = 0

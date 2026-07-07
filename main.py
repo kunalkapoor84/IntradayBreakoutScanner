@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config.settings import CONFIG
 from config.logging_setup import setup_logging
-from data.collect_data import DataCollector
+from data.collect_data import DataCollector, _is_market_open_now
 from data.time_utils import now_ist
 from scoring.ai_scorer import AIScorer
 from reporting.excel_report import ExcelReportGenerator
@@ -35,8 +35,10 @@ class ScannerEngine:
         self.email = EmailAlert()
 
     def run(self) -> ScannerOutput:
+        market_open = _is_market_open_now()
+        mode_str = "LIVE 15min" if market_open else "AFTER-HOURS daily"
         logger.info("=" * 60)
-        logger.info("INTRADAY BREAKOUT SCANNER - Starting")
+        logger.info(f"INTRADAY BREAKOUT SCANNER - Starting ({mode_str})")
         logger.info("=" * 60)
         out = ScannerOutput(generated_at=now_ist().strftime("%Y-%m-%d %H:%M:%S"))
         all_s = self.data.collect_all_stocks()
@@ -44,7 +46,7 @@ class ScannerEngine:
         scored: List[ScoredStock] = []
         for idx, (sym, stock) in enumerate(all_s.items()):
             try:
-                _, result, plan = self.scorer.analyze_stock(stock)
+                _, result, plan = self.scorer.analyze_stock(stock, market_open=market_open)
                 ss = self._build(stock, result, plan, idx)
                 scored.append(ss)
                 band = self.scorer.get_confidence_band(ss.total_score)
@@ -153,7 +155,7 @@ class ScannerEngine:
                 idx = next((i for i, s in enumerate(scored) if s.symbol == sym), -1)
                 if idx >= 0:
                     old_chart_path = scored[idx].chart_path
-                    _, result, plan = self.scorer.analyze_stock(stock)
+                    _, result, plan = self.scorer.analyze_stock(stock, market_open=_is_market_open_now())
                     scored[idx] = self._build(stock, result, plan, idx)
                     scored[idx].chart_path = old_chart_path
                     logger.info(f"  OC enriched: {sym} | OI: {stock.open_interest:,} | PCR: {stock.pcr} | IV: {stock.iv}%")
@@ -213,9 +215,10 @@ def main():
     else:
         eng = ScannerEngine()
         if a.symbol:
-            stock = eng.data.collect_symbol_data(a.symbol.upper())
+            market_open = _is_market_open_now()
+            stock = eng.data.collect_symbol_data(a.symbol.upper(), market_open=market_open)
             if stock:
-                _, r, plan = eng.scorer.analyze_stock(stock)
+                _, r, plan = eng.scorer.analyze_stock(stock, market_open=market_open)
                 print(f"\nSymbol: {stock.symbol}\nPrice: {stock.price}\nScore: {r.total_score:.1f}\nDirection: {r.direction.value if hasattr(r.direction,'value') else r.direction}\nConfidence: {r.confidence:.1f}%\nEntry: {plan.entry_price}\nSL: {plan.stop_loss}\nT1: {plan.target_1}\nT2: {plan.target_2}\nStrategy: {plan.best_strategy.value if hasattr(plan.best_strategy,'value') else plan.best_strategy}\nPatterns: {', '.join([p.value for p in r.patterns])}")
         else:
             eng.run()
