@@ -103,6 +103,9 @@ class AIScorer:
             return False, AnalysisResult(symbol=stock.symbol), TradePlan(symbol=stock.symbol)
         if not stock.ohlc_15min or len(stock.ohlc_15min) < 50:
             return False, AnalysisResult(symbol=stock.symbol), TradePlan(symbol=stock.symbol)
+        prev_close = stock.ohlc_15min[-2].get("close", 0) if len(stock.ohlc_15min) >= 2 else stock.ohlc_15min[-1].get("close", 0)
+        if stock.price < prev_close:
+            return False, AnalysisResult(symbol=stock.symbol), TradePlan(symbol=stock.symbol)
         intra = StockData(
             symbol=stock.symbol, price=stock.price,
             avg_turnover_crore=stock.avg_turnover_crore,
