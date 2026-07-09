@@ -32,6 +32,10 @@ class AIScorer:
         if market_open:
             return self._analyze_live(stock)
         ok, result, plan = self._run_pipeline(stock)
+        if result.direction == Direction.BULLISH and not result.momentum_signals.get("price_above_vwap", False):
+            ok = False
+        if result.direction == Direction.BEARISH and result.momentum_signals.get("price_above_vwap", False):
+            ok = False
         ema = self._check_daily_ema_crossover(stock)
         if ema.get("fresh_crossover"):
             result.patterns.append(PatternType.EMA_CROSSOVER_DAILY)
@@ -126,6 +130,10 @@ class AIScorer:
             result.total_score = min(100, result.total_score + 5)
         if 55 <= result.rsi <= 75:
             result.total_score = min(100, result.total_score + 3)
+        if result.direction == Direction.BULLISH and not result.momentum_signals.get("price_above_vwap", False):
+            return False, result, plan
+        if result.direction == Direction.BEARISH and result.momentum_signals.get("price_above_vwap", False):
+            return False, result, plan
         if not ok or result.direction == Direction.NEUTRAL or result.total_score < CONFIG.scanner.score_threshold:
             return False, result, plan
         return True, result, plan
