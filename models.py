@@ -34,6 +34,7 @@ class PatternType(str, Enum):
     DOJI_NEAR_BREAKOUT = "Doji Near Breakout"
     EMA_CROSSOVER_15MIN = "15min EMA Crossover"
     VOLUME_EXPANSION_15MIN = "15min Vol Expansion"
+    STRONG_MOMENTUM_15MIN = "15min Strong Momentum"
     EMA_CROSSOVER_DAILY = "Daily EMA 10/30 Crossover"
 
 

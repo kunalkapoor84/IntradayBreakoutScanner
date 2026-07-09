@@ -87,13 +87,10 @@ class AIScorer:
             return False
         ms = self.momentum.analyze(stock)
         rsi = self._compute_rsi(stock)
-        adx = ms.get("adx", 0)
         trend_score = self._score_trend(stock)
         if trend_score < 8:
             return False
         if rsi < 40 or rsi > 75:
-            return False
-        if adx < 15:
             return False
         return True
 
@@ -124,6 +121,11 @@ class AIScorer:
             result.total_score = min(100, result.total_score + 10)
         if ema.get("alignment"):
             result.total_score = min(100, result.total_score + 5)
+        if result.adx > 25:
+            result.patterns.append(PatternType.STRONG_MOMENTUM_15MIN)
+            result.total_score = min(100, result.total_score + 5)
+        if 55 <= result.rsi <= 75:
+            result.total_score = min(100, result.total_score + 3)
         if not ok or result.direction == Direction.NEUTRAL or result.total_score < CONFIG.scanner.score_threshold:
             return False, result, plan
         return True, result, plan
