@@ -1,5 +1,6 @@
-import sys, os, time
+import sys, os, time, shutil
 from datetime import datetime
+from pathlib import Path
 from typing import List
 import numpy as np
 
@@ -22,6 +23,14 @@ from models import StockData, AnalysisResult, ScoredStock, ScannerOutput, TradeP
 logger = setup_logging("scanner")
 
 
+def clear_output_dirs():
+    for d in [Path("output/reports"), Path("output/charts")]:
+        if d.exists():
+            shutil.rmtree(d)
+            logger.info("Cleared %s", d)
+        d.mkdir(parents=True, exist_ok=True)
+
+
 class ScannerEngine:
     def __init__(self):
         self.data = DataCollector()
@@ -35,6 +44,7 @@ class ScannerEngine:
         self.email = EmailAlert()
 
     def run(self) -> ScannerOutput:
+        clear_output_dirs()
         market_open = _is_market_open_now()
         mode_str = "LIVE 15min" if market_open else "AFTER-HOURS daily"
         logger.info("=" * 60)
